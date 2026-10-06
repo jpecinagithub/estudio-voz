@@ -89,7 +89,11 @@ function mensajeDeDomException(error: DOMException): string | null {
 /** Convierte cualquier error en un mensaje en español listo para mostrar. */
 export function mensajeAmigable(error: unknown): string {
   if (error instanceof ErrorApp) {
-    return MENSAJES_POR_CODIGO[error.codigo] ?? error.message ?? MENSAJE_GENERICO;
+    // Se prefiere el mensaje específico de la instancia (siempre en español
+    // y redactado para el usuario); el del código es el respaldo genérico.
+    // Esto es clave para diagnosticar: p. ej. distingue un fallo de descarga
+    // de un fallo al cargar el modelo en memoria.
+    return (error.message || MENSAJES_POR_CODIGO[error.codigo]) ?? MENSAJE_GENERICO;
   }
   if (error instanceof DOMException) {
     return mensajeDeDomException(error) ?? MENSAJE_GENERICO;
