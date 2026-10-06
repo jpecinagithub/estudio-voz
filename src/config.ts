@@ -25,6 +25,38 @@ export const FORMATOS_ACEPTADOS_DESCRIPCION = 'MP3, WAV, M4A, OGG, WEBM y FLAC';
 
 export const EXTENSIONES_ACEPTADAS = ['.mp3', '.wav', '.m4a', '.ogg', '.webm', '.flac', '.mp4', '.aac'];
 
+/** Tipos MIME de audio aceptados (respaldo cuando el archivo no tiene extensión). */
+export const TIPOS_MIME_ACEPTADOS = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/m4a',
+  'audio/aac',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+  'audio/vnd.wave',
+  'audio/ogg',
+  'audio/webm',
+  'audio/flac',
+  'audio/x-flac',
+  'video/mp4',
+  'video/webm',
+];
+
+/** Comprueba si un archivo es un audio compatible: por extensión o, si no tiene, por tipo MIME. */
+export function esAudioCompatible(archivo: { name: string; type?: string }): boolean {
+  const minusculas = archivo.name.toLowerCase();
+  const tieneExtension = minusculas.includes('.');
+  if (tieneExtension) {
+    const extension = `.${minusculas.split('.').pop() ?? ''}`;
+    if (EXTENSIONES_ACEPTADAS.includes(extension)) return true;
+  }
+  const tipoMime = (archivo.type || '').toLowerCase().split(';')[0].trim();
+  return TIPOS_MIME_ACEPTADOS.includes(tipoMime);
+}
+
 /** Voces del estudio: 4 perfiles españoles reales (el motor concreto se configura en src/tts/motor.ts). */
 export interface Voz {
   id: 'lucia' | 'elena' | 'mateo' | 'javier';

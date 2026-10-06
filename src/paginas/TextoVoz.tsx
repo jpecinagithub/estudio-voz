@@ -55,6 +55,7 @@ interface DescargaModelo {
   vozId: IdVoz;
   porcentaje: number | null;
   tamano?: string;
+  detalle?: string;
 }
 
 export function PaginaTextoVoz() {
@@ -117,6 +118,7 @@ export function PaginaTextoVoz() {
             vozId: id,
             porcentaje: estado.porcentaje,
             tamano: estado.tamanoAproximado,
+            detalle: estado.detalle,
           });
         },
         controlador.signal,
@@ -421,7 +423,7 @@ export function PaginaTextoVoz() {
         {descarga && (
           <div className="espaciado">
             <BarraProgreso
-              fase="Preparando la voz por primera vez…"
+              fase={descarga.detalle || 'Preparando la voz por primera vez…'}
               porcentaje={descarga.porcentaje}
             />
             <p className="campo-ayuda">

@@ -19,6 +19,7 @@ import {
   EXTENSIONES_ACEPTADAS,
   FORMATOS_ACEPTADOS_DESCRIPCION,
   PISTAS_MUSICA,
+  esAudioCompatible,
   type CalidadExportacion,
 } from '../config';
 import {
@@ -100,9 +101,7 @@ function nombreVozSesion(clave: string): string {
 }
 
 function validarArchivoAudio(archivo: File): void {
-  const nombre = archivo.name.toLowerCase();
-  const extensionValida = EXTENSIONES_ACEPTADAS.some((ext) => nombre.endsWith(ext));
-  if (!extensionValida) {
+  if (!esAudioCompatible(archivo)) {
     throw new ErrorApp(
       'archivo-no-compatible',
       `«${archivo.name}» no es un audio compatible. Prueba con ${FORMATOS_ACEPTADOS_DESCRIPCION}.`,

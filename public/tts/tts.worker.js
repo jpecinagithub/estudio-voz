@@ -78,7 +78,9 @@ function esperarRuntime() {
   });
 }
 
-/** Descarga un archivo con progreso; usa Cache Storage para no repetir descargas. */
+/** Descarga un archivo con progreso; usa Cache Storage para no repetir descargas.
+ * Incluye detección de atasco: si pasan 45 s sin recibir datos, la descarga
+ * se cancela con un error en español para que el usuario pueda reintentar. */
 async function obtenerBytes(rutaRelativa, peticionId, etiqueta) {
   const url = baseUrl + rutaRelativa;
   const cache = await caches.open(NOMBRE_CACHE);
@@ -86,7 +88,15 @@ async function obtenerBytes(rutaRelativa, peticionId, etiqueta) {
   if (enCache) {
     return new Uint8Array(await enCache.arrayBuffer());
   }
-  const respuesta = await fetch(url);
+  const controlador = new AbortController();
+  let respuesta;
+  try {
+    respuesta = await fetch(url, { signal: controlador.signal });
+  } catch (e) {
+    throw new Error(
+      'No se ha podido descargar ' + etiqueta + '. Comprueba tu conexión a internet y pulsa Reintentar.',
+    );
+  }
   if (!respuesta.ok) {
     throw new Error('No se ha podido descargar ' + etiqueta + '.');
   }
@@ -94,16 +104,36 @@ async function obtenerBytes(rutaRelativa, peticionId, etiqueta) {
   const lector = respuesta.body.getReader();
   const trozos = [];
   let recibidos = 0;
-  for (;;) {
-    const { done, value } = await lector.read();
-    if (done) break;
-    trozos.push(value);
-    recibidos += value.length;
-    if (total > 0 && peticionId) {
-      progreso(peticionId, 'descargando-modelo', Math.round((recibidos / total) * 100),
-        etiqueta + ': ' + Math.round((recibidos / 1048576) * 10) / 10 + ' de ' +
-        Math.round((total / 1048576) * 10) / 10 + ' MB');
+  const LIMITE_INACTIVIDAD_MS = 45000;
+  let temporizador = setTimeout(() => controlador.abort(), LIMITE_INACTIVIDAD_MS);
+  const rearmarTemporizador = () => {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(() => controlador.abort(), LIMITE_INACTIVIDAD_MS);
+  };
+  try {
+    for (;;) {
+      const { done, value } = await lector.read();
+      clearTimeout(temporizador);
+      if (done) break;
+      trozos.push(value);
+      recibidos += value.length;
+      if (total > 0 && peticionId) {
+        progreso(peticionId, 'descargando-modelo', Math.round((recibidos / total) * 100),
+          etiqueta + ': ' + Math.round((recibidos / 1048576) * 10) / 10 + ' de ' +
+          Math.round((total / 1048576) * 10) / 10 + ' MB');
+      }
+      rearmarTemporizador();
     }
+  } catch (e) {
+    clearTimeout(temporizador);
+    try {
+      await lector.cancel();
+    } catch (_) {
+      /* ignorar */
+    }
+    throw new Error(
+      'La descarga de ' + etiqueta + ' se interrumpió. Comprueba tu conexión a internet y pulsa Reintentar.',
+    );
   }
   const bytes = new Uint8Array(recibidos);
   let offset = 0;
@@ -160,6 +190,11 @@ async function obtenerTts(vozId, peticionId) {
   const bytesTokens = await obtenerBytes('modelos/' + vozId + '.tokens.txt', peticionId, 'Datos de voz');
   escribirEnMemoria('/' + vozId + '.onnx', bytesModelo);
   escribirEnMemoria('/' + vozId + '.tokens.txt', bytesTokens);
+  // La carga del modelo en memoria puede tardar hasta un minuto en equipos
+  // lentos; se avisa para que no parezca que el proceso se ha atascado.
+  if (peticionId) {
+    progreso(peticionId, 'preparando', 100, 'Cargando el modelo de voz en memoria… puede tardar un minuto.');
+  }
   const tts = createOfflineTts(self.Module, {
     model: {
       vits: {

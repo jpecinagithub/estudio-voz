@@ -29,6 +29,7 @@ import {
   FORMATOS_ACEPTADOS_DESCRIPCION,
   TAMANO_MAXIMO_SUBIDA_DIRECTA,
   TAMANO_MAXIMO_TRANSCRIPCION,
+  esAudioCompatible,
 } from '../config';
 import {
   crearId,
@@ -62,11 +63,9 @@ function nombreBase(nombre: string): string {
   return sinExtension || 'audio';
 }
 
-/** Comprueba la extensión y el tamaño antes de aceptar un archivo. */
+/** Comprueba la extensión (o el tipo MIME si no hay extensión) y el tamaño antes de aceptar un archivo. */
 function validarArchivo(archivo: File): void {
-  const minusculas = archivo.name.toLowerCase();
-  const extension = `.${minusculas.split('.').pop() ?? ''}`;
-  if (!EXTENSIONES_ACEPTADAS.includes(extension)) {
+  if (!esAudioCompatible(archivo)) {
     throw new ErrorApp(
       'archivo-no-compatible',
       'Este archivo no es un audio compatible.',
