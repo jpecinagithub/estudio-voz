@@ -50,8 +50,13 @@ const pendientes = new Map<number, PeticionPendiente>();
 const estados = new Map<IdVoz, EstadoModeloVoz>();
 let contextoAudio: AudioContext | null = null;
 
+// La marca de versión la inyecta Vite al compilar (vite.config.ts).
+declare const __VERSION_APP__: string;
+
 function urlWorker(): string {
-  return `${import.meta.env.BASE_URL}tts/tts.worker.js`;
+  // Se añade la versión de la app como parámetro para evitar que el navegador
+  // o el service worker sirvan una copia obsoleta del worker tras actualizar.
+  return `${import.meta.env.BASE_URL}tts/tts.worker.js?v=${__VERSION_APP__}`;
 }
 
 /** Tiempo máximo sin progreso para que el worker anuncie que está listo. */

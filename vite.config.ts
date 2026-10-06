@@ -1,16 +1,26 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'node:child_process';
 import { APP_NOMBRE, APP_DESCRIPCION, COLOR_TEMA } from './src/config';
+
+function marcaVersion(): string {
+  const fecha = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  let commit = '';
+  try {
+    commit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    /* sin git disponible */
+  }
+  return commit ? `${fecha} UTC (${commit})` : `${fecha} UTC`;
+}
 
 // https://vite.dev/config/
 export default defineConfig({
   // Marca de versión visible en "Acerca de": permite saber qué despliegue
   // está ejecutando el navegador (útil tras actualizaciones).
   define: {
-    __VERSION_APP__: JSON.stringify(
-      new Date().toISOString().slice(0, 16).replace('T', ' '),
-    ),
+    __VERSION_APP__: JSON.stringify(marcaVersion()),
   },
   plugins: [
     react(),
