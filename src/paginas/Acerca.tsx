@@ -80,7 +80,13 @@ export function PaginaAcerca() {
           <strong>Creado por Jon Peciña</strong> ·{' '}
           <a href="mailto:jpecina@gmail.com">jpecina@gmail.com</a>
         </p>
+        <p className="campo-ayuda" style={{ marginTop: 8, marginBottom: 0 }}>
+          Versión de la aplicación: {__VERSION_APP__} UTC
+        </p>
       </Tarjeta>
     </>
   );
 }
+
+// La marca de versión la inyecta Vite al compilar (vite.config.ts).
+declare const __VERSION_APP__: string;

@@ -5,6 +5,13 @@ import { APP_NOMBRE, APP_DESCRIPCION, COLOR_TEMA } from './src/config';
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Marca de versión visible en "Acerca de": permite saber qué despliegue
+  // está ejecutando el navegador (útil tras actualizaciones).
+  define: {
+    __VERSION_APP__: JSON.stringify(
+      new Date().toISOString().slice(0, 16).replace('T', ' '),
+    ),
+  },
   plugins: [
     react(),
     VitePWA({
