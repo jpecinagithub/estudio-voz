@@ -54,7 +54,7 @@ function urlWorker(): string {
   return `${import.meta.env.BASE_URL}tts/tts.worker.js`;
 }
 
-/** Tiempo máximo para que el worker anuncie que está listo (carga del WASM). */
+/** Tiempo máximo sin progreso para que el worker anuncie que está listo. */
 const TIEMPO_MAXIMO_ARRANQUE_MS = 90000;
 let temporizadorArranque: ReturnType<typeof setTimeout> | null = null;
 
@@ -63,6 +63,31 @@ function limpiarTemporizadorArranque(): void {
     clearTimeout(temporizadorArranque);
     temporizadorArranque = null;
   }
+}
+
+/** (Re)arma el temporizador de arranque: solo salta si no hay ningún progreso. */
+function rearmarTemporizadorArranque(w: Worker): void {
+  limpiarTemporizadorArranque();
+  temporizadorArranque = setTimeout(() => {
+    temporizadorArranque = null;
+    const p = pendientes.get(0);
+    if (p && worker === w) {
+      pendientes.delete(0);
+      try {
+        w.terminate();
+      } catch {
+        /* ignorar */
+      }
+      worker = null;
+      workerListo = false;
+      p.rechazar(
+        new ErrorApp(
+          'modelo-tts-fallo',
+          'El motor de voz está tardando demasiado en arrancar. Comprueba tu conexión y pulsa Reintentar.',
+        ),
+      );
+    }
+  }, TIEMPO_MAXIMO_ARRANQUE_MS);
 }
 
 function asegurarWorker(): Worker {
@@ -95,28 +120,11 @@ function asegurarWorker(): Worker {
     vozId: 'lucia',
   };
   pendientes.set(0, peticionArranque);
-  // Si el worker no responde a tiempo (p. ej. WASM bloqueado en la red),
-  // se aborta con un error reintentable en lugar de quedarse colgado.
-  temporizadorArranque = setTimeout(() => {
-    temporizadorArranque = null;
-    const p = pendientes.get(0);
-    if (p && worker === w) {
-      pendientes.delete(0);
-      try {
-        w.terminate();
-      } catch {
-        /* ignorar */
-      }
-      worker = null;
-      workerListo = false;
-      p.rechazar(
-        new ErrorApp(
-          'modelo-tts-fallo',
-          'El motor de voz está tardando demasiado en arrancar. Comprueba tu conexión y pulsa Reintentar.',
-        ),
-      );
-    }
-  }, TIEMPO_MAXIMO_ARRANQUE_MS);
+  // Si el worker no muestra ningún progreso a tiempo (p. ej. WASM bloqueado
+  // en la red), se aborta con un error reintentable en lugar de colgarse.
+  // El temporizador se rearma con cada progreso: una descarga lenta pero
+  // viva no se interrumpe.
+  rearmarTemporizadorArranque(w);
   w.postMessage({ tipo: 'iniciar', baseUrl: base });
   worker = w;
   return w;
@@ -165,11 +173,13 @@ function alMensaje(evento: MessageEvent): void {  const msg = evento.data as {
 
   // Progreso del arranque del motor (descarga del WASM): no pertenece a
   // ninguna petición de voz y se informa por el oyente dedicado.
+  // Además rearma el temporizador: mientras haya progreso, no se aborta.
   if (msg.tipo === 'progreso' && id === 0 && msg.fase === 'iniciando-motor') {
     oyenteArranque?.(
       typeof msg.porcentaje === 'number' ? msg.porcentaje : null,
       msg.detalle ?? '',
     );
+    if (worker) rearmarTemporizadorArranque(worker);
     return;
   }
 
