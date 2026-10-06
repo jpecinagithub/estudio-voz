@@ -1,0 +1,1 @@
+{"$schema":"https://openapi.vercel.sh/vercel.json","functions":{"api/blob/borrar.ts":{"maxDuration":30},"api/blob/token.ts":{"maxDuration":30},"api/mejorar-texto.ts":{"maxDuration":60},"api/transcribir.ts":{"maxDuration":120}}}
