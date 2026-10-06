@@ -84,8 +84,16 @@ function asegurarWorker(): Worker {
   return w;
 }
 
-function alMensaje(evento: MessageEvent): void {
-  const msg = evento.data as {
+/** Avisa al worker de que una petición se abandona para que libere el trabajo en curso. */
+function avisarCancelacionWorker(peticionId: number): void {
+  try {
+    worker?.postMessage({ tipo: 'cancelar', peticionId });
+  } catch {
+    /* el worker puede estar ya terminado */
+  }
+}
+
+function alMensaje(evento: MessageEvent): void {  const msg = evento.data as {
     tipo: string;
     peticionId?: number;
     vozId?: IdVoz;
@@ -189,6 +197,7 @@ export async function prepararVoz(
     });
     const alAbortar = () => {
       pendientes.delete(peticionId);
+      avisarCancelacionWorker(peticionId);
       estados.set(id, { estado: 'no-cargado', porcentaje: null, tamanoAproximado: TAMANOS[id] });
       rechazar(new DOMException('Cancelado', 'AbortError'));
     };
@@ -247,6 +256,7 @@ export async function sintetizarVoz(
       });
       const alAbortar = () => {
         pendientes.delete(peticionId);
+        avisarCancelacionWorker(peticionId);
         // El WASM es monohilo y bloqueante: la forma segura de cancelar
         // es reiniciar el worker y marcar las voces como no cargadas.
         liberarVoces();

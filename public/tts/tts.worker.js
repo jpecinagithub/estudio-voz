@@ -53,6 +53,11 @@ let resolverRuntime = null;
 let espeakListo = false;
 const ttsPorVoz = new Map();
 
+/** Peticiones canceladas por el hilo principal (se comprueban entre fases). */
+const cancelados = new Set();
+/** Permite abortar la descarga en curso de una petición. */
+const abortadoresDescarga = new Map();
+
 function alRuntimeListo() {
   runtimeListo = true;
   if (resolverRuntime) {
@@ -78,26 +83,46 @@ function esperarRuntime() {
   });
 }
 
+function comprobarCancelacion(peticionId) {
+  if (peticionId && cancelados.has(peticionId)) {
+    throw new DOMException('Cancelado', 'AbortError');
+  }
+}
+
 /** Descarga un archivo con progreso; usa Cache Storage para no repetir descargas.
  * Incluye detección de atasco: si pasan 45 s sin recibir datos, la descarga
- * se cancela con un error en español para que el usuario pueda reintentar. */
+ * se cancela con un error en español para que el usuario pueda reintentar.
+ * La descarga también puede cancelarse desde el hilo principal (petición
+ * 'cancelar'): en ese caso se propaga un AbortError sin mensaje de red. */
 async function obtenerBytes(rutaRelativa, peticionId, etiqueta) {
   const url = baseUrl + rutaRelativa;
+  comprobarCancelacion(peticionId);
   const cache = await caches.open(NOMBRE_CACHE);
   const enCache = await cache.match(url);
   if (enCache) {
     return new Uint8Array(await enCache.arrayBuffer());
   }
   const controlador = new AbortController();
+  // Marca si la cancelación la pidió el usuario (frente a un atasco de red).
+  const motivo = { usuario: false };
+  if (peticionId) {
+    abortadoresDescarga.set(peticionId, () => {
+      motivo.usuario = true;
+      controlador.abort();
+    });
+  }
   let respuesta;
   try {
     respuesta = await fetch(url, { signal: controlador.signal });
   } catch (e) {
+    if (peticionId) abortadoresDescarga.delete(peticionId);
+    if (motivo.usuario) throw new DOMException('Cancelado', 'AbortError');
     throw new Error(
       'No se ha podido descargar ' + etiqueta + '. Comprueba tu conexión a internet y pulsa Reintentar.',
     );
   }
   if (!respuesta.ok) {
+    if (peticionId) abortadoresDescarga.delete(peticionId);
     throw new Error('No se ha podido descargar ' + etiqueta + '.');
   }
   const total = Number(respuesta.headers.get('content-length')) || 0;
@@ -131,9 +156,13 @@ async function obtenerBytes(rutaRelativa, peticionId, etiqueta) {
     } catch (_) {
       /* ignorar */
     }
+    if (motivo.usuario) throw new DOMException('Cancelado', 'AbortError');
     throw new Error(
       'La descarga de ' + etiqueta + ' se interrumpió. Comprueba tu conexión a internet y pulsa Reintentar.',
     );
+  } finally {
+    clearTimeout(temporizador);
+    if (peticionId) abortadoresDescarga.delete(peticionId);
   }
   const bytes = new Uint8Array(recibidos);
   let offset = 0;
@@ -186,10 +215,14 @@ async function prepararEspeak(peticionId) {
 async function obtenerTts(vozId, peticionId) {
   if (ttsPorVoz.has(vozId)) return ttsPorVoz.get(vozId);
   await prepararEspeak(peticionId);
+  comprobarCancelacion(peticionId);
   const bytesModelo = await obtenerBytes('modelos/' + vozId + '.onnx', peticionId, 'Modelo de voz');
+  comprobarCancelacion(peticionId);
   const bytesTokens = await obtenerBytes('modelos/' + vozId + '.tokens.txt', peticionId, 'Datos de voz');
+  comprobarCancelacion(peticionId);
   escribirEnMemoria('/' + vozId + '.onnx', bytesModelo);
   escribirEnMemoria('/' + vozId + '.tokens.txt', bytesTokens);
+  comprobarCancelacion(peticionId);
   // La carga del modelo en memoria puede tardar hasta un minuto en equipos
   // lentos; se avisa para que no parezca que el proceso se ha atascado.
   if (peticionId) {
@@ -226,6 +259,7 @@ async function sintetizar(peticionId, vozId, texto, velocidad) {
   const partes = [];
   let totalMuestras = 0;
   for (let i = 0; i < frases.length; i++) {
+    comprobarCancelacion(peticionId);
     progreso(peticionId, 'sintetizando', Math.round((i / frases.length) * 100),
       'Generando la voz… (' + (i + 1) + ' de ' + frases.length + ')');
     const audio = tts.generate({ text: frases[i], sid: 0, speed: velocidad || 1.0 });
@@ -255,6 +289,16 @@ async function sintetizar(peticionId, vozId, texto, velocidad) {
 
 self.onmessage = async (evento) => {
   const msg = evento.data;
+  if (msg.tipo === 'cancelar') {
+    // El hilo principal abandona una petición: se marca como cancelada y,
+    // si está descargando, se aborta la descarga para liberar el worker.
+    if (msg.peticionId) {
+      cancelados.add(msg.peticionId);
+      const abortar = abortadoresDescarga.get(msg.peticionId);
+      if (abortar) abortar();
+    }
+    return;
+  }
   try {
     if (msg.tipo === 'iniciar') {
       baseUrl = msg.baseUrl || '';
@@ -272,11 +316,18 @@ self.onmessage = async (evento) => {
       publicar({ tipo: 'preparada', peticionId: msg.peticionId, vozId: msg.vozId });
     }
   } catch (err) {
+    // Las cancelaciones del usuario no son errores: el hilo principal ya
+    // abandonó la petición y no espera respuesta.
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return;
+    }
     publicar({
       tipo: 'error',
       peticionId: msg.peticionId || null,
       mensaje: err && err.message ? err.message : 'Error desconocido en la síntesis de voz.',
     });
+  } finally {
+    if (msg.peticionId) cancelados.delete(msg.peticionId);
   }
 };
 

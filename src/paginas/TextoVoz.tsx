@@ -80,6 +80,8 @@ export function PaginaTextoVoz() {
   const prepRef = useRef<{ controlador: AbortController; vozId: IdVoz } | null>(null);
   const audioMuestraRef = useRef<HTMLAudioElement | null>(null);
   const urlMuestraRef = useRef<string | null>(null);
+  /** Generación de la muestra: evita que una petición obsoleta borre el estado de una más reciente. */
+  const muestraGenRef = useRef(0);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const areaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -132,6 +134,7 @@ export function PaginaTextoVoz() {
   }
 
   function detenerMuestra() {
+    muestraGenRef.current += 1;
     const audio = audioMuestraRef.current;
     if (audio) {
       audio.pause();
@@ -154,12 +157,16 @@ export function PaginaTextoVoz() {
       return;
     }
     detenerMuestra();
+    const generacion = muestraGenRef.current + 1;
+    muestraGenRef.current = generacion;
     setError(null);
     setMuestraVozId(voz.id);
     setMuestraCargando(true);
     try {
       await asegurarVozLista(voz.id);
+      if (muestraGenRef.current !== generacion) return;
       const buffer = await sintetizarVoz(voz.textoMuestra, voz.id, 1);
+      if (muestraGenRef.current !== generacion) return;
       const url = URL.createObjectURL(audioBufferAWav(buffer));
       urlMuestraRef.current = url;
       const audio = audioMuestraRef.current;
@@ -168,6 +175,8 @@ export function PaginaTextoVoz() {
       setMuestraCargando(false);
       await audio.play();
     } catch (fallo) {
+      // Una petición obsoleta (el usuario ya pidió otra muestra) no toca el estado.
+      if (muestraGenRef.current !== generacion) return;
       detenerMuestra();
       // Cancelado por el usuario (cambió de voz): no es un error visible.
       if (fallo instanceof DOMException && fallo.name === 'AbortError') return;
