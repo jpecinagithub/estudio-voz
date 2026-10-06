@@ -131,6 +131,19 @@ function avisarCancelacionWorker(peticionId: number): void {
   }
 }
 
+/** Oyente del progreso del arranque del motor (descarga del WASM). */
+let oyenteArranque: ((porcentaje: number | null, detalle: string) => void) | null = null;
+
+/**
+ * Registra (o elimina con null) el oyente del progreso del arranque del motor.
+ * Solo hay un arranque por worker, así que basta con un único oyente.
+ */
+export function alProgresarArranqueMotor(
+  oyente: ((porcentaje: number | null, detalle: string) => void) | null,
+): void {
+  oyenteArranque = oyente;
+}
+
 function alMensaje(evento: MessageEvent): void {  const msg = evento.data as {
     tipo: string;
     peticionId?: number;
@@ -149,6 +162,17 @@ function alMensaje(evento: MessageEvent): void {  const msg = evento.data as {
     return;
   }
   const id = msg.peticionId ?? -1;
+
+  // Progreso del arranque del motor (descarga del WASM): no pertenece a
+  // ninguna petición de voz y se informa por el oyente dedicado.
+  if (msg.tipo === 'progreso' && id === 0 && msg.fase === 'iniciando-motor') {
+    oyenteArranque?.(
+      typeof msg.porcentaje === 'number' ? msg.porcentaje : null,
+      msg.detalle ?? '',
+    );
+    return;
+  }
+
   const p = pendientes.get(id);
   if (!p) return;
 

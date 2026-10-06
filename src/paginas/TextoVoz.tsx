@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { VOCES, type Voz } from '../config';
-import { estadoVoz, prepararVoz, sintetizarVoz } from '../tts/motor';
+import { alProgresarArranqueMotor, estadoVoz, prepararVoz, sintetizarVoz } from '../tts/motor';
 import type { EstadoModeloVoz, IdVoz } from '../tts/motor';
 import { audioBufferAWav, calcularPicos, estimarDuracionTexto } from '../audio/motor';
 import { exportarAudio, nombreArchivoExportacion } from '../exportar/codificadores';
@@ -112,6 +112,15 @@ export function PaginaTextoVoz() {
     const controlador = new AbortController();
     prepRef.current = { controlador, vozId: id };
     setDescarga({ vozId: id, porcentaje: null });
+    // Muestra también el progreso del arranque del motor (descarga del WASM),
+    // que ocurre antes de la descarga del modelo de voz.
+    alProgresarArranqueMotor((porcentaje, detalle) => {
+      setDescarga((actual) =>
+        actual && actual.vozId === id
+          ? { ...actual, porcentaje: porcentaje ?? actual.porcentaje, detalle: detalle || actual.detalle }
+          : actual,
+      );
+    });
     try {
       await prepararVoz(
         id,

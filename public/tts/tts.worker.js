@@ -17,7 +17,7 @@
  *   worker → main: { tipo: 'error', peticionId, mensaje }
  */
 
-/* global importScripts, self, caches, fetch */
+/* global importScripts, self, caches, fetch, WebAssembly, DOMException */
 
 // El build web de sherpa-onnx lee self.Module ANTES de importScripts.
 self.Module = {
@@ -27,6 +27,87 @@ self.Module = {
   },
   onRuntimeInitialized: function () {
     if (typeof alRuntimeListo === 'function') alRuntimeListo();
+  },
+  /**
+   * Carga del WASM con timeout y progreso propios.
+   * El fetch interno de Emscripten no tiene timeout: si la red se queda
+   * colgada, el arranque no avisa nunca. Aquí se detecta la inactividad
+   * (45 s sin datos) y se informa con un error reintentable en español.
+   */
+  instantiateWasm: function (imports, alInstanciar) {
+    const url = 'sherpa-onnx-wasm-main-tts.wasm';
+    const controlador = new AbortController();
+    const LIMITE_INACTIVIDAD_MS = 45000;
+    let temporizador = setTimeout(() => controlador.abort(), LIMITE_INACTIVIDAD_MS);
+    const rearmar = () => {
+      clearTimeout(temporizador);
+      temporizador = setTimeout(() => controlador.abort(), LIMITE_INACTIVIDAD_MS);
+    };
+    fetch(url, { signal: controlador.signal })
+      .then((respuesta) => {
+        if (!respuesta.ok) {
+          throw new Error('no-ok');
+        }
+        const total = Number(respuesta.headers.get('content-length')) || 0;
+        const lector = respuesta.body.getReader();
+        const trozos = [];
+        let recibidos = 0;
+        const leer = () => {
+          return lector.read().then(({ done, value }) => {
+            clearTimeout(temporizador);
+            if (done) return trozos;
+            trozos.push(value);
+            recibidos += value.length;
+            if (total > 0) {
+              publicar({
+                tipo: 'progreso',
+                peticionId: 0,
+                fase: 'iniciando-motor',
+                porcentaje: Math.round((recibidos / total) * 100),
+                detalle:
+                  'Cargando el motor de voz: ' +
+                  (Math.round((recibidos / 1048576) * 10) / 10) +
+                  ' de ' +
+                  (Math.round((total / 1048576) * 10) / 10) +
+                  ' MB',
+              });
+            }
+            rearmar();
+            return leer();
+          });
+        };
+        return leer().then(() => {
+          const bytes = new Uint8Array(recibidos);
+          let offset = 0;
+          for (const t of trozos) {
+            bytes.set(t, offset);
+            offset += t.length;
+          }
+          return bytes;
+        });
+      })
+      .then((bytes) => WebAssembly.instantiate(bytes, imports))
+      .then(
+        (resultado) => {
+          clearTimeout(temporizador);
+          alInstanciar(resultado.instance);
+        },
+        (fallo) => {
+          clearTimeout(temporizador);
+          throw fallo;
+        },
+      )
+      .catch(() => {
+        clearTimeout(temporizador);
+        publicar({
+          tipo: 'error',
+          peticionId: 0,
+          mensaje:
+            'No se ha podido cargar el motor de voz. Comprueba tu conexión a internet y pulsa Reintentar.',
+        });
+      });
+    // Se devuelve un objeto vacío para indicar instanciación asíncrona.
+    return {};
   },
 };
 
