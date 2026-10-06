@@ -32,6 +32,20 @@ self.Module = {
 
 importScripts('sherpa-onnx-wasm-main-tts.js', 'sherpa-onnx-tts.js');
 
+// Vigilante: si el runtime WASM no se inicializa en 2 minutos (p. ej. la
+// descarga del .wasm se queda colgada), se avisa en lugar de silencio eterno.
+// El hilo principal tiene su propio temporizador más corto (90 s).
+setTimeout(() => {
+  if (!runtimeListo) {
+    publicar({
+      tipo: 'error',
+      peticionId: 0,
+      mensaje:
+        'El motor de voz no se ha podido iniciar (tiempo de espera agotado). Prueba a recargar la página.',
+    });
+  }
+}, 120000);
+
 const NOMBRE_CACHE = 'estudio-voz-tts-v1';
 const FRECUENCIA_ESPERADA = 22050;
 

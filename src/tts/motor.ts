@@ -54,11 +54,25 @@ function urlWorker(): string {
   return `${import.meta.env.BASE_URL}tts/tts.worker.js`;
 }
 
+/** Tiempo máximo para que el worker anuncie que está listo (carga del WASM). */
+const TIEMPO_MAXIMO_ARRANQUE_MS = 90000;
+let temporizadorArranque: ReturnType<typeof setTimeout> | null = null;
+
+function limpiarTemporizadorArranque(): void {
+  if (temporizadorArranque) {
+    clearTimeout(temporizadorArranque);
+    temporizadorArranque = null;
+  }
+}
+
 function asegurarWorker(): Worker {
   if (worker) return worker;
   const w = new Worker(urlWorker());
   w.onmessage = alMensaje;
   w.onerror = () => {
+    limpiarTemporizadorArranque();
+    if (worker === w) worker = null;
+    workerListo = false;
     const error = new ErrorApp(
       'modelo-tts-fallo',
       'El motor de voz no se ha podido iniciar en este navegador.',
@@ -70,15 +84,39 @@ function asegurarWorker(): Worker {
   const base = `${window.location.origin}${import.meta.env.BASE_URL}`;
   const peticionArranque: PeticionPendiente = {
     resolver: () => {
+      limpiarTemporizadorArranque();
       workerListo = true;
     },
     rechazar: () => {
+      limpiarTemporizadorArranque();
       workerListo = false;
     },
     esPreparacion: true,
     vozId: 'lucia',
   };
   pendientes.set(0, peticionArranque);
+  // Si el worker no responde a tiempo (p. ej. WASM bloqueado en la red),
+  // se aborta con un error reintentable en lugar de quedarse colgado.
+  temporizadorArranque = setTimeout(() => {
+    temporizadorArranque = null;
+    const p = pendientes.get(0);
+    if (p && worker === w) {
+      pendientes.delete(0);
+      try {
+        w.terminate();
+      } catch {
+        /* ignorar */
+      }
+      worker = null;
+      workerListo = false;
+      p.rechazar(
+        new ErrorApp(
+          'modelo-tts-fallo',
+          'El motor de voz está tardando demasiado en arrancar. Comprueba tu conexión y pulsa Reintentar.',
+        ),
+      );
+    }
+  }, TIEMPO_MAXIMO_ARRANQUE_MS);
   w.postMessage({ tipo: 'iniciar', baseUrl: base });
   worker = w;
   return w;
@@ -286,6 +324,7 @@ export async function sintetizarVoz(
 
 /** Libera la memoria de los modelos (p. ej. desde Ajustes). */
 export function liberarVoces(): void {
+  limpiarTemporizadorArranque();
   for (const [, p] of pendientes) {
     if (p.esPreparacion) {
       p.rechazar(new DOMException('Cancelado', 'AbortError'));
