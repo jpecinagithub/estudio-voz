@@ -352,15 +352,63 @@ async function obtenerTts(vozId, peticionId) {
 }
 
 /** Divide el texto en frases para sintetizar por partes con progreso real. */
+const MAX_CARACTERES_POR_FRAGMENTO = 150;
 function dividirEnFrases(texto) {
-  const frases = texto.match(/[^.!?…\n]+[.!?…\n]+|[^.!?…\n]+$/g);
-  if (!frases) return [texto];
-  return frases.map((f) => f.trim()).filter((f) => f.length > 0);
+  const brutas = texto.match(/[^.!?…\n]+[.!?…\n]+|[^.!?…\n]+$/g);
+  const base = brutas
+    ? brutas.map((f) => f.trim()).filter((f) => f.length > 0)
+    : [texto.trim()].filter((f) => f.length > 0);
+  // Subdivide las frases largas por palabras: una sola llamada nativa con
+  // demasiado texto puede agotar la memoria del módulo WebAssembly
+  // ("memory access out of bounds").
+  const fragmentos = [];
+  for (const f of base) {
+    if (f.length <= MAX_CARACTERES_POR_FRAGMENTO) {
+      fragmentos.push(f);
+      continue;
+    }
+    let actual = '';
+    for (const palabra of f.split(/\s+/)) {
+      const candidato = (actual + ' ' + palabra).trim();
+      if (candidato.length > MAX_CARACTERES_POR_FRAGMENTO && actual) {
+        fragmentos.push(actual.trim());
+        actual = palabra;
+      } else {
+        actual = candidato;
+      }
+    }
+    if (actual.trim()) fragmentos.push(actual.trim());
+  }
+  return fragmentos;
+}
+
+/**
+ * Remuestrea por interpolación lineal. Las voces "low" (Lucía, Elena) generan
+ * a 16000 Hz y las "medium" (Mateo, Javier) a 22050 Hz; se unifica todo a
+ * 22050 Hz para que la reproducción, la mezcla y la exportación sean
+ * consistentes. Sin esto, Lucía y Elena suenan aceleradas (chipmunk).
+ */
+function remuestrear(muestras, origen, destino) {
+  if (!origen || origen === destino) return muestras;
+  const ratio = destino / origen;
+  const n = Math.max(1, Math.round(muestras.length * ratio));
+  const salida = new Float32Array(n);
+  const ultimo = muestras.length - 1;
+  for (let i = 0; i < n; i++) {
+    const pos = i / ratio;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(i0 + 1, ultimo);
+    const frac = pos - i0;
+    salida[i] = muestras[i0] * (1 - frac) + muestras[i1] * frac;
+  }
+  return salida;
 }
 
 async function sintetizar(peticionId, vozId, texto, velocidad) {
   progreso(peticionId, 'preparando', 0, 'Preparando la voz…');
   const tts = await obtenerTts(vozId, peticionId);
+  // Frecuencia nativa del modelo (16000 en voces "low", 22050 en "medium").
+  const frecuenciaNativa = (tts && tts.sampleRate) || FRECUENCIA_ESPERADA;
   const frases = dividirEnFrases(texto);
   const partes = [];
   let totalMuestras = 0;
@@ -368,12 +416,25 @@ async function sintetizar(peticionId, vozId, texto, velocidad) {
     comprobarCancelacion(peticionId);
     progreso(peticionId, 'sintetizando', Math.round((i / frases.length) * 100),
       'Generando la voz… (' + (i + 1) + ' de ' + frases.length + ')');
-    const audio = tts.generate({ text: frases[i], sid: 0, speed: velocidad || 1.0 });
+    let audio;
+    try {
+      audio = tts.generate({ text: frases[i], sid: 0, speed: velocidad || 1.0 });
+    } catch (err) {
+      // Sin memoria en el módulo WASM con un fragmento concreto.
+      if (err && /memory access out of bounds/i.test(err.message || '')) {
+        throw new Error(
+          'No hay memoria suficiente para generar este texto. Prueba con un texto más corto o divídelo en partes.',
+        );
+      }
+      throw err;
+    }
     if (!audio || !audio.samples || audio.samples.length === 0) {
       throw new Error('La generación de voz no ha producido audio.');
     }
-    partes.push(audio.samples);
-    totalMuestras += audio.samples.length;
+    // Unifica a 22050 Hz (las voces "low" generan a 16000 Hz).
+    const muestras = remuestrear(audio.samples, audio.sampleRate || frecuenciaNativa, FRECUENCIA_ESPERADA);
+    partes.push(muestras);
+    totalMuestras += muestras.length;
   }
   const muestras = new Float32Array(totalMuestras);
   let offset = 0;
