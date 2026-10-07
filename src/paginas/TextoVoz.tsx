@@ -174,7 +174,7 @@ export function PaginaTextoVoz() {
     try {
       await asegurarVozLista(voz.id);
       if (muestraGenRef.current !== generacion) return;
-      const buffer = await sintetizarVoz(voz.textoMuestra, voz.id, 1);
+      const buffer = await sintetizarVoz(voz.textoMuestra, voz.id, voz.velocidadBase);
       if (muestraGenRef.current !== generacion) return;
       const url = URL.createObjectURL(audioBufferAWav(buffer));
       urlMuestraRef.current = url;
@@ -207,7 +207,10 @@ export function PaginaTextoVoz() {
   async function generar() {
     const textoActual = texto.trim();
     const id = vozId;
-    const vel = velocidad;
+    const vozElegida = VOCES.find((v) => v.id === id) ?? VOCES[0];
+    // La velocidad de la interfaz se multiplica por la base de la voz
+    // (Lucía/Elena necesitan 2.0 para un ritmo natural).
+    const vel = velocidad * vozElegida.velocidadBase;
     if (!textoActual || generando) return;
     detenerMuestra();
     setError(null);
@@ -217,9 +220,8 @@ export function PaginaTextoVoz() {
       const buffer = await sintetizarVoz(textoActual, id, vel);
       const blob = audioBufferAWav(buffer);
       const picos = calcularPicos(buffer, 240);
-      const voz = VOCES.find((v) => v.id === id) ?? VOCES[0];
       const primeras = textoActual.split(/\s+/).slice(0, 8).join(' ');
-      const nombreBase = `Voz de ${voz.nombre} — ${primeras}`;
+      const nombreBase = `Voz de ${vozElegida.nombre} — ${primeras}`;
       const nombre =
         nombreBase.length > 40 ? `${nombreBase.slice(0, 37)}…` : nombreBase;
       try {
@@ -240,7 +242,7 @@ export function PaginaTextoVoz() {
         blob,
         buffer,
         picos,
-        vozNombre: voz.nombre,
+        vozNombre: vozElegida.nombre,
         duracion: buffer.duration,
       });
     } catch (fallo) {

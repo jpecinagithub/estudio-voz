@@ -65,6 +65,12 @@ export interface Voz {
   descripcion: string;
   /** Texto de la muestra que se reproduce con "Escuchar muestra". */
   textoMuestra: string;
+  /**
+   * Velocidad base de la voz. Los modelos "low" (Lucía, Elena) hablan de forma
+   * natural mucho más lento (~6 car/s frente a ~18 car/s de los "medium"),
+   * por lo que se compensan con una velocidad mayor.
+   */
+  velocidadBase: number;
 }
 
 export const VOCES: Voz[] = [
@@ -74,6 +80,7 @@ export const VOCES: Voz[] = [
     genero: 'Femenina',
     descripcion: 'Voz clara, cálida y cercana.',
     textoMuestra: 'Hola, soy Lucía. Mi voz es clara, cálida y cercana.',
+    velocidadBase: 2.0,
   },
   {
     id: 'elena',
@@ -81,6 +88,7 @@ export const VOCES: Voz[] = [
     genero: 'Femenina',
     descripcion: 'Voz serena, profesional y ligeramente más grave.',
     textoMuestra: 'Hola, soy Elena. Mi voz es serena y profesional.',
+    velocidadBase: 2.0,
   },
   {
     id: 'mateo',
@@ -88,6 +96,7 @@ export const VOCES: Voz[] = [
     genero: 'Masculina',
     descripcion: 'Voz natural, cercana y moderna.',
     textoMuestra: 'Hola, soy Mateo. Mi voz es natural y cercana.',
+    velocidadBase: 1.0,
   },
   {
     id: 'javier',
@@ -95,6 +104,7 @@ export const VOCES: Voz[] = [
     genero: 'Masculina',
     descripcion: 'Voz profunda, pausada y profesional.',
     textoMuestra: 'Hola, soy Javier. Mi voz es profunda y pausada.',
+    velocidadBase: 1.0,
   },
 ];
 
