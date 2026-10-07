@@ -141,6 +141,19 @@ setTimeout(() => {
 const NOMBRE_CACHE = 'estudio-voz-tts-v1';
 const FRECUENCIA_ESPERADA = 22050;
 
+/**
+ * Frecuencia nativa real de cada modelo Piper (de sus config.json oficiales
+ * en rhasspy/piper-voices). NO fiarse de lo que reporta el wrapper nativo
+ * (_SherpaOnnxOfflineTtsSampleRate devuelve 22050 para las cuatro, incorrecto
+ * para las "low").
+ */
+const FRECUENCIAS_NATIVAS = {
+  lucia: 16000, // es_ES-mls_10246-low
+  elena: 16000, // es_ES-mls_9972-low
+  mateo: 22050, // es_ES-davefx-medium
+  javier: 22050, // es_ES-sharvard-medium
+};
+
 /** Archivos de espeak-ng necesarios para el español (rutas relativas a /modelos/espeak-ng-data/). */
 const ARCHIVOS_ESPEAK = [
   'es_dict',
@@ -407,8 +420,8 @@ function remuestrear(muestras, origen, destino) {
 async function sintetizar(peticionId, vozId, texto, velocidad) {
   progreso(peticionId, 'preparando', 0, 'Preparando la voz…');
   const tts = await obtenerTts(vozId, peticionId);
-  // Frecuencia nativa del modelo (16000 en voces "low", 22050 en "medium").
-  const frecuenciaNativa = (tts && tts.sampleRate) || FRECUENCIA_ESPERADA;
+  // Frecuencia nativa según el modelo oficial (el wrapper nativo no es fiable).
+  const frecuenciaNativa = FRECUENCIAS_NATIVAS[vozId] || FRECUENCIA_ESPERADA;
   const frases = dividirEnFrases(texto);
   const partes = [];
   let totalMuestras = 0;
@@ -432,7 +445,7 @@ async function sintetizar(peticionId, vozId, texto, velocidad) {
       throw new Error('La generación de voz no ha producido audio.');
     }
     // Unifica a 22050 Hz (las voces "low" generan a 16000 Hz).
-    const muestras = remuestrear(audio.samples, audio.sampleRate || frecuenciaNativa, FRECUENCIA_ESPERADA);
+    const muestras = remuestrear(audio.samples, frecuenciaNativa, FRECUENCIA_ESPERADA);
     partes.push(muestras);
     totalMuestras += muestras.length;
   }
