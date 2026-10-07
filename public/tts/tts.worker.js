@@ -29,6 +29,17 @@ self.Module = {
     if (typeof alRuntimeListo === 'function') alRuntimeListo();
   },
   /**
+   * El .data preempaquetado del build oficial (96,5 MB: un modelo VITS en
+   * inglés + espeak-ng-data de todos los idiomas) no se usa en esta app:
+   * espeak-ng-data (español) y los modelos de voz se descargan por separado
+   * y se escriben en el FS virtual. Devolver un paquete vacío evita
+   * descargar 96,5 MB inútiles y satisface la contabilidad de dependencias
+   * de Emscripten (sin esto, el runtime no arranca nunca: el .data da 404).
+   */
+  getPreloadedPackage: function () {
+    return new ArrayBuffer(0);
+  },
+  /**
    * Carga del WASM con timeout y progreso propios.
    * El fetch interno de Emscripten no tiene timeout: si la red se queda
    * colgada, el arranque no avisa nunca. Aquí se detecta la inactividad
