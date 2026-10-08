@@ -86,18 +86,45 @@ async function subirTemporal(
 ): Promise<string> {
   // `upload()` pide el token a /api/blob/token (handleUploadUrl) y sube
   // directamente del navegador a Blob, sin pasar por la Function.
-  const blob = await upload(nombreSeguro(nombre), audio, {
-    access: 'public',
-    handleUploadUrl: '/api/blob/token',
-    clientPayload: JSON.stringify({
-      contentType: audio.type || 'application/octet-stream',
-      size: audio.size,
-    }),
-    onUploadProgress: ({ loaded, total }) => {
-      alProgresar(total > 0 ? Math.round((loaded / total) * 100) : null);
-    },
-  });
-  return blob.url;
+  try {
+    const blob = await upload(nombreSeguro(nombre), audio, {
+      access: 'public',
+      handleUploadUrl: '/api/blob/token',
+      clientPayload: JSON.stringify({
+        contentType: audio.type || 'application/octet-stream',
+        size: audio.size,
+      }),
+      onUploadProgress: ({ loaded, total }) => {
+        alProgresar(total > 0 ? Math.round((loaded / total) * 100) : null);
+      },
+    });
+    return blob.url;
+  } catch (error) {
+    // `upload()` lanza errores genéricos: los convertimos en errores
+    // conocidos para mostrar un mensaje específico en español.
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ErrorApp('operacion-cancelada', 'La transcripción se ha cancelado.');
+    }
+    const mensaje = error instanceof Error ? error.message : String(error ?? '');
+    // El token temporal lo genera /api/blob/token; si responde 503 es que
+    // falta BLOB_READ_WRITE_TOKEN en el despliegue.
+    if (/503|client token|token/i.test(mensaje)) {
+      throw new ErrorApp(
+        'blob-no-configurado',
+        'La carga optimizada no está disponible en el servidor. Prueba con un archivo de menos de 4 MB.',
+      );
+    }
+    if (esFalloDeRed(error)) {
+      throw new ErrorApp(
+        'api-no-disponible',
+        'Se ha interrumpido la subida del audio. Comprueba tu conexión y pulsa Reintentar.',
+      );
+    }
+    throw new ErrorApp(
+      'blob-fallo',
+      'No se pudo subir el audio para la carga optimizada. Pulsa Reintentar.',
+    );
+  }
 }
 
 /** Transcribe un audio a texto en español. */
