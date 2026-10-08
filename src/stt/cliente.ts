@@ -171,9 +171,12 @@ async function subirTemporal(
         'Se ha interrumpido la subida del audio. Comprueba tu conexión y pulsa Reintentar.',
       );
     }
+    // Diagnóstico temporal: incluye el mensaje real del cliente Blob.
+    const detalle = error instanceof Error ? error.message : String(error ?? '');
+    console.error('[subirTemporal] fallo de upload():', detalle);
     throw new ErrorApp(
       'blob-fallo',
-      'No se pudo subir el audio para la carga optimizada. Pulsa Reintentar.',
+      `No se pudo subir el audio para la carga optimizada. Detalle: ${detalle.slice(0, 200)}`,
     );
   }
 }
