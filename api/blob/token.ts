@@ -84,8 +84,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const base = nombreSeguro(String(payload.pathname || 'audio'));
-    const pathname = `transcripciones/${Date.now()}-${base}`;
+    // El cliente envía el pathname completo y sanitizado (con timestamp).
+    // Se usa tal cual: el token debe coincidir EXACTAMENTE con el pathname
+    // que `upload()` utilizará, o Blob rechaza la subida ("Pathname mismatch").
+    const pathname = String(payload.pathname || 'audio')
+      .replace(/[^a-zA-Z0-9._/-]/g, '_')
+      .slice(0, 120) || 'transcripciones/audio';
 
     const clientToken = await generateClientTokenFromReadWriteToken({
       token: process.env.BLOB_READ_WRITE_TOKEN,

@@ -78,6 +78,11 @@ function nombreSeguro(nombre: string): string {
   return `${Date.now()}-${base}`;
 }
 
+/** Ruta completa en Blob (el token debe coincidir exactamente con ella). */
+function rutaBlob(nombre: string): string {
+  return `transcripciones/${nombreSeguro(nombre)}`;
+}
+
 const CODIGOS_TOKEN_CONOCIDOS = new Set([
   'blob-no-configurado',
   'blob-fallo',
@@ -91,7 +96,7 @@ const CODIGOS_TOKEN_CONOCIDOS = new Set([
  * oculta el motivo real; esta llamada directa lee el código específico.
  */
 async function verificarTokenEndpoint(
-  nombre: string,
+  ruta: string,
   audio: Blob,
   senal?: AbortSignal,
 ): Promise<void> {
@@ -103,7 +108,7 @@ async function verificarTokenEndpoint(
       body: JSON.stringify({
         type: 'blob.generate-client-token',
         payload: {
-          pathname: nombreSeguro(nombre),
+          pathname: ruta,
           clientPayload: JSON.stringify({
             contentType: audio.type || 'application/octet-stream',
             size: audio.size,
@@ -141,14 +146,15 @@ async function subirTemporal(
   alProgresar: (porcentaje: number | null) => void,
   senal?: AbortSignal,
 ): Promise<string> {
-  // Verificación previa: obtiene el error específico del servidor
-  // (upload() lo ocultaría tras un BlobError genérico).
-  await verificarTokenEndpoint(nombre, audio, senal);
+  // La ruta debe ser idéntica en la verificación y en upload(),
+  // porque el token está ligado exactamente a ese pathname.
+  const ruta = rutaBlob(nombre);
+  await verificarTokenEndpoint(ruta, audio, senal);
 
   // `upload()` pide el token a /api/blob/token (handleUploadUrl) y sube
   // directamente del navegador a Blob, sin pasar por la Function.
   try {
-    const blob = await upload(nombreSeguro(nombre), audio, {
+    const blob = await upload(ruta, audio, {
       access: 'public',
       handleUploadUrl: '/api/blob/token',
       clientPayload: JSON.stringify({
@@ -171,12 +177,9 @@ async function subirTemporal(
         'Se ha interrumpido la subida del audio. Comprueba tu conexión y pulsa Reintentar.',
       );
     }
-    // Diagnóstico temporal: incluye el mensaje real del cliente Blob.
-    const detalle = error instanceof Error ? error.message : String(error ?? '');
-    console.error('[subirTemporal] fallo de upload():', detalle);
     throw new ErrorApp(
       'blob-fallo',
-      `No se pudo subir el audio para la carga optimizada. Detalle: ${detalle.slice(0, 200)}`,
+      'No se pudo subir el audio para la carga optimizada. Pulsa Reintentar.',
     );
   }
 }
