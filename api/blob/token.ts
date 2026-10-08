@@ -37,10 +37,6 @@ function leerJson(req: VercelRequest): Record<string, unknown> {
   return (req.body as Record<string, unknown>) ?? {};
 }
 
-function nombreSeguro(nombre: string): string {
-  return nombre.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60) || 'audio';
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método no permitido.' });
