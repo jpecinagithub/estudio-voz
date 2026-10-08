@@ -78,12 +78,73 @@ function nombreSeguro(nombre: string): string {
   return `${Date.now()}-${base}`;
 }
 
+const CODIGOS_TOKEN_CONOCIDOS = new Set([
+  'blob-no-configurado',
+  'blob-fallo',
+  'archivo-no-compatible',
+  'archivo-supera-limite',
+]);
+
+/**
+ * Verificación previa del endpoint de tokens. `upload()` de @vercel/blob
+ * lanza un BlobError genérico ("Failed to retrieve the client token") que
+ * oculta el motivo real; esta llamada directa lee el código específico.
+ */
+async function verificarTokenEndpoint(
+  nombre: string,
+  audio: Blob,
+  senal?: AbortSignal,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch('/api/blob/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'blob.generate-client-token',
+        payload: {
+          pathname: nombreSeguro(nombre),
+          clientPayload: JSON.stringify({
+            contentType: audio.type || 'application/octet-stream',
+            size: audio.size,
+          }),
+        },
+      }),
+      signal: senal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ErrorApp('operacion-cancelada', 'La transcripción se ha cancelado.');
+    }
+    throw new ErrorApp(
+      'api-no-disponible',
+      'No se puede contactar con el servicio de subida. Comprueba tu conexión.',
+    );
+  }
+  if (res.ok) return;
+  const datos = (await leerJson(res)) as { codigo?: unknown; error?: unknown };
+  const codigo =
+    typeof datos.codigo === 'string' && CODIGOS_TOKEN_CONOCIDOS.has(datos.codigo)
+      ? datos.codigo
+      : 'blob-fallo';
+  const mensaje =
+    typeof datos.error === 'string' && datos.error
+      ? datos.error
+      : 'No se pudo preparar la carga optimizada. Pulsa Reintentar.';
+  throw new ErrorApp(codigo, mensaje);
+}
+
 /** Subida directa navegador → Blob con token temporal del servidor. */
 async function subirTemporal(
   audio: Blob,
   nombre: string,
   alProgresar: (porcentaje: number | null) => void,
+  senal?: AbortSignal,
 ): Promise<string> {
+  // Verificación previa: obtiene el error específico del servidor
+  // (upload() lo ocultaría tras un BlobError genérico).
+  await verificarTokenEndpoint(nombre, audio, senal);
+
   // `upload()` pide el token a /api/blob/token (handleUploadUrl) y sube
   // directamente del navegador a Blob, sin pasar por la Function.
   try {
@@ -100,19 +161,9 @@ async function subirTemporal(
     });
     return blob.url;
   } catch (error) {
-    // `upload()` lanza errores genéricos: los convertimos en errores
-    // conocidos para mostrar un mensaje específico en español.
+    if (error instanceof ErrorApp) throw error;
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new ErrorApp('operacion-cancelada', 'La transcripción se ha cancelado.');
-    }
-    const mensaje = error instanceof Error ? error.message : String(error ?? '');
-    // El token temporal lo genera /api/blob/token; si responde 503 es que
-    // falta BLOB_READ_WRITE_TOKEN en el despliegue.
-    if (/503|client token|token/i.test(mensaje)) {
-      throw new ErrorApp(
-        'blob-no-configurado',
-        'La carga optimizada no está disponible en el servidor. Prueba con un archivo de menos de 4 MB.',
-      );
     }
     if (esFalloDeRed(error)) {
       throw new ErrorApp(
@@ -169,8 +220,11 @@ export async function transcribirAudio(
 
     // ── Ruta optimizada para archivos grandes ──
     alProgresar?.('Preparando la carga optimizada…', 0);
-    const url = await subirTemporal(audio, nombreArchivo || 'audio', (p) =>
-      alProgresar?.('Subiendo audio…', p),
+    const url = await subirTemporal(
+      audio,
+      nombreArchivo || 'audio',
+      (p) => alProgresar?.('Subiendo audio…', p),
+      senal,
     );
     try {
       alProgresar?.('Transcribiendo audio…', null);
